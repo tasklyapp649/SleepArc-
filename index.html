@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>SleepArc</title>
+<meta name="description" content="Recommandation de sommeil basée sur ton âge et ton activité du jour." />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<link rel="icon" href="icon-512.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="SleepArc" />
+<meta name="theme-color" content="#0A0E1A" />
+
+<script>
+  window.addEventListener('error', function (e) {
+    var root = document.getElementById('root');
+    if (root && !root.hasChildNodes()) {
+      root.innerHTML = '<div style="color:#FF8B8B;background:#0A0E1A;min-height:100vh;padding:24px;' +
+        'font-family:monospace;font-size:13px;white-space:pre-wrap;">Erreur au chargement :\n' +
+        (e.message || 'inconnue') + '</div>';
+    }
+  });
+</script>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  html, body { background: #0A0E1A; margin: 0; }
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Space Grotesk', sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  *:focus-visible { outline: 2px solid #A8C5FF; outline-offset: 2px; }
+  .fade-up { animation: fadeUp .5s ease both; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(8px);} to {opacity:1; transform:translateY(0);} }
+  .glow-pulse { animation: glowPulse 3s ease-in-out infinite; }
+  @keyframes glowPulse { 0%,100%{opacity:.9} 50%{opacity:1} }
+  @media (prefers-reduced-motion: reduce) {
+    .fade-up, .glow-pulse { animation: none !important; }
+  }
+  input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+/* ---------- Icônes (SVG minimalistes, aucune dépendance externe) ---------- */
+function Icon({ children, size = 16, color = "currentColor", style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={style}>
+      {children}
+    </svg>
+  );
+}
+const MoonIcon = (p) => <Icon {...p}><path d="M20.4 15.3A8.5 8.5 0 1 1 8.7 3.6a7 7 0 0 0 11.7 11.7z" /></Icon>;
+const SunriseIcon = (p) => <Icon {...p}><path d="M12 3v5M4.2 10.5l1.4 1.4M19.8 10.5l-1.4 1.4M2 18h20M6 18a6 6 0 0 1 12 0" /><path d="M9 2h6" strokeOpacity="0" /></Icon>;
+const ActivityIcon = (p) => <Icon {...p}><polyline points="2,13 8,13 10,6 14,20 16,13 22,13" /></Icon>;
+const FootIcon = (p) => <Icon {...p}><ellipse cx="9" cy="8" rx="3" ry="4.2" /><ellipse cx="16" cy="15" rx="3" ry="4.2" /></Icon>;
+const ClipboardIcon = (p) => <Icon {...p}><rect x="5" y="4" width="14" height="17" rx="2" /><rect x="9" y="2" width="6" height="3" rx="1" /><line x1="8" y1="11" x2="16" y2="11" /><line x1="8" y1="15" x2="13" y2="15" /></Icon>;
+const SettingsIcon = (p) => <Icon {...p}><line x1="4" y1="7" x2="20" y2="7" /><circle cx="9" cy="7" r="2" fill={p.color || "currentColor"} /><line x1="4" y1="14" x2="20" y2="14" /><circle cx="16" cy="14" r="2" fill={p.color || "currentColor"} /><line x1="4" y1="19" x2="20" y2="19" /><circle cx="11" cy="19" r="2" fill={p.color || "currentColor"} /></Icon>;
+const XIcon = (p) => <Icon {...p}><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></Icon>;
+const CheckIcon = (p) => <Icon {...p}><polyline points="5,13 10,18 19,6" /></Icon>;
+const CopyIcon = (p) => <Icon {...p}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></Icon>;
+const ChevronRightIcon = (p) => <Icon {...p}><polyline points="9,5 15,12 9,19" /></Icon>;
+const FlameIcon = (p) => <Icon {...p}><path d="M12 22c4 0 6.5-2.6 6.5-6 0-3-2-4.5-3-7-1 1.5-2 2-2 2 .3-3-1.5-5.5-3.5-7 .5 3-1 4-2.5 6-1.7 2.3-2 3.7-2 6 0 3.4 2.5 6 6.5 6z" /></Icon>;
+const InfoIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><circle cx="12" cy="7.5" r="0.9" fill={p.color || "currentColor"} stroke="none" /></Icon>;
+const BedIcon = (p) => <Icon {...p}><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6" /><path d="M3 18v2M21 18v2" /><path d="M3 14V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v3" /><line x1="10" y1="12" x2="21" y2="12" /></Icon>;
+
+/* ---------- Constantes / logique de calcul (identiques à la version app) ---------- */
+const C = {
+  void: "#0A0E1A", space: "#111A30", spaceLight: "#1B2648",
+  moon: "#A8C5FF", moonDim: "#5E7AC0", amber: "#FFB86B",
+  vapor: "#7C89A8", text: "#F2F5FA", danger: "#FF8B8B",
+};
+
+const RANGE_START = 17 * 60;
+const RANGE_SPAN = 18 * 60;
+
+function toRangePct(minOfDay) {
+  let t = minOfDay;
+  if (t < RANGE_START) t += 1440;
+  return Math.min(100, Math.max(0, ((t - RANGE_START) / RANGE_SPAN) * 100));
+}
+function getBaseline(age) {
+  if (age < 6) return { minH: 10, maxH: 13, targetH: 11.5 };
+  if (age < 13) return { minH: 9, maxH: 11, targetH: 10 };
+  if (age < 18) return { minH: 8, maxH: 10, targetH: 9 };
+  if (age < 65) return { minH: 7, maxH: 9, targetH: 8 };
+  return { minH: 7, maxH: 8, targetH: 7.5 };
+}
+function getBonus(exerciseMin) {
+  const e = Number(exerciseMin) || 0;
+  if (e >= 75) return 60;
+  if (e >= 45) return 40;
+  if (e >= 20) return 20;
+  return 0;
+}
+function computeRecommendation(age, exerciseMin) {
+  const { minH, maxH, targetH } = getBaseline(age);
+  const baseMin = Math.round(targetH * 60);
+  const bonus = getBonus(exerciseMin);
+  const minMin = Math.round(minH * 60);
+  const maxMin = Math.round(maxH * 60) + 45;
+  const totalMin = Math.min(Math.max(baseMin + bonus, minMin), maxMin);
+  return { baseMin, bonus, totalMin, minMin, maxMin };
+}
+function formatHM(min) {
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return `${h}h${m.toString().padStart(2, "0")}`;
+}
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
+}
+function shortDate(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return `${d}/${m}`;
+}
+const TEMPLATE = `{"steps": <Pas>, "exerciseMin": <Minutes>, "activeEnergy": <Active>, "restingEnergy": <Repos>}`;
+
+/* ---------- Stockage local (remplace window.storage, qui n'existe que dans Claude) ---------- */
+function loadJSON(key) {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch (e) { return null; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.error("Erreur de sauvegarde", e); }
+}
+
+/* ---------- Graphique de tendance (SVG fait main, sans dépendance) ---------- */
+function TrendChart({ data }) {
+  if (!data.length) return null;
+  const w = 300, h = 140, pad = 26;
+  const values = data.flatMap((d) => [d.recommande, d.reel]).filter((v) => v !== null && v !== undefined);
+  const minV = Math.min(...values) - 0.3;
+  const maxV = Math.max(...values) + 0.3;
+  const x = (i) => pad + (i * (w - pad * 2)) / Math.max(1, data.length - 1);
+  const y = (v) => h - pad - ((v - minV) / (maxV - minV || 1)) * (h - pad * 2);
+  const linePoints = (key) =>
+    data.map((d, i) => (d[key] !== null && d[key] !== undefined ? `${x(i)},${y(d[key])}` : null)).filter(Boolean).join(" ");
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={160}>
+        {[0, 1, 2, 3].map((i) => (
+          <line key={i} x1={pad} x2={w - pad} y1={pad + (i * (h - pad * 2)) / 3} y2={pad + (i * (h - pad * 2)) / 3} stroke={C.spaceLight} strokeWidth="1" />
+        ))}
+        <polyline points={linePoints("recommande")} fill="none" stroke={C.moon} strokeWidth="2" />
+        <polyline points={linePoints("reel")} fill="none" stroke={C.amber} strokeWidth="2" />
+        {data.map((d, i) => (d.reel != null ? <circle key={i} cx={x(i)} cy={y(d.reel)} r="2.5" fill={C.amber} /> : null))}
+      </svg>
+      <div className="flex gap-4 text-xs font-mono mt-1" style={{ color: C.vapor }}>
+        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: C.moon, marginRight: 4 }}></span>Recommandé</span>
+        <span><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: C.amber, marginRight: 4 }}></span>Réel</span>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- App principale ---------- */
+function SleepArc() {
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
+  const [entries, setEntries] = useState({});
+  const [tab, setTab] = useState("home");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ageDraft, setAgeDraft] = useState("");
+  const [onboardAge, setOnboardAge] = useState("");
+
+  const [wakeTime, setWakeTime] = useState("06:30");
+  const [pasteText, setPasteText] = useState("");
+  const [parseError, setParseError] = useState(null);
+  const [steps, setSteps] = useState("");
+  const [exerciseMin, setExerciseMin] = useState("");
+  const [activeEnergy, setActiveEnergy] = useState("");
+  const [restingEnergy, setRestingEnergy] = useState("");
+  const [savedFlag, setSavedFlag] = useState(false);
+  const [copiedTemplate, setCopiedTemplate] = useState(false);
+  const [actualDrafts, setActualDrafts] = useState({});
+
+  useEffect(() => {
+    const p = loadJSON("sleeparc_profile");
+    if (p) {
+      setProfile(p);
+      if (p.wakeTime) setWakeTime(p.wakeTime);
+    }
+    const e = loadJSON("sleeparc_entries");
+    if (e) setEntries(e);
+    setLoading(false);
+  }, []);
+
+  const age = profile?.age;
+  const rec = useMemo(() => (age ? computeRecommendation(age, exerciseMin) : null), [age, exerciseMin]);
+
+  const { bedPct, wakePct, bedLabel } = useMemo(() => {
+    if (!rec) return {};
+    const [wh, wm] = wakeTime.split(":").map(Number);
+    const wakeMin = wh * 60 + wm;
+    let bedMin = ((wakeMin - rec.totalMin) % 1440 + 1440) % 1440;
+    const bh = Math.floor(bedMin / 60), bm = bedMin % 60;
+    return {
+      bedPct: toRangePct(bedMin),
+      wakePct: toRangePct(wakeMin),
+      bedLabel: `${bh.toString().padStart(2, "0")}:${bm.toString().padStart(2, "0")}`,
+    };
+  }, [rec, wakeTime]);
+
+  function saveProfile(next) {
+    setProfile(next);
+    saveJSON("sleeparc_profile", next);
+  }
+  function saveEntries(next) {
+    setEntries(next);
+    saveJSON("sleeparc_entries", next);
+  }
+
+  function handleOnboard() {
+    const a = parseInt(onboardAge, 10);
+    if (!a || a < 3 || a > 110) return;
+    saveProfile({ age: a, wakeTime });
+  }
+  function handleSaveAge() {
+    const a = parseInt(ageDraft, 10);
+    if (!a || a < 3 || a > 110) return;
+    saveProfile({ ...profile, age: a });
+    setSettingsOpen(false);
+  }
+
+  function buildEntry(stepsVal, exerciseVal, activeVal, restingVal, wake) {
+    const r = computeRecommendation(age, exerciseVal);
+    const [wh, wm] = wake.split(":").map(Number);
+    const wakeMin = wh * 60 + wm;
+    const bedMin = ((wakeMin - r.totalMin) % 1440 + 1440) % 1440;
+    const bh = Math.floor(bedMin / 60), bm = bedMin % 60;
+    return {
+      steps: Number(stepsVal) || 0,
+      exerciseMin: Number(exerciseVal) || 0,
+      activeEnergy: Number(activeVal) || 0,
+      restingEnergy: Number(restingVal) || 0,
+      wakeTime: wake,
+      baseMin: r.baseMin,
+      bonus: r.bonus,
+      totalMin: r.totalMin,
+      bedtime: `${bh.toString().padStart(2, "0")}:${bm.toString().padStart(2, "0")}`,
+      ts: Date.now(),
+    };
+  }
+
+  function persistEntry(partial) {
+    const key = todayKey();
+    const next = { ...entries, [key]: { ...partial, actualSleepMin: entries[key]?.actualSleepMin } };
+    saveEntries(next);
+  }
+
+  function handleParse(text) {
+    try {
+      const obj = JSON.parse(text);
+      const s = obj.steps !== undefined ? String(obj.steps) : steps;
+      const ex = obj.exerciseMin !== undefined ? String(obj.exerciseMin) : exerciseMin;
+      const ac = obj.activeEnergy !== undefined ? String(obj.activeEnergy) : activeEnergy;
+      const re = obj.restingEnergy !== undefined ? String(obj.restingEnergy) : restingEnergy;
+      setSteps(s); setExerciseMin(ex); setActiveEnergy(ac); setRestingEnergy(re);
+      setParseError(null);
+      persistEntry(buildEntry(s, ex, ac, re, wakeTime));
+      setSavedFlag(true);
+      setTimeout(() => setSavedFlag(false), 2500);
+    } catch (e) {
+      setParseError("Format non reconnu — vérifie le Raccourci ou entre les valeurs à la main ci-dessous.");
+    }
+  }
+
+  function handlePasteChange(v) {
+    setPasteText(v);
+    const t = v.trim();
+    if (t.startsWith("{") && t.endsWith("}")) handleParse(t);
+  }
+
+  function handleSaveToday() {
+    if (!age) return;
+    persistEntry(buildEntry(steps, exerciseMin, activeEnergy, restingEnergy, wakeTime));
+    saveProfile({ ...profile, wakeTime });
+    setSavedFlag(true);
+    setTimeout(() => setSavedFlag(false), 2000);
+  }
+
+  function handleSaveActual(key) {
+    const val = parseFloat(actualDrafts[key]);
+    if (!val || val <= 0) return;
+    const next = { ...entries, [key]: { ...entries[key], actualSleepMin: Math.round(val * 60) } };
+    saveEntries(next);
+  }
+
+  function copyTemplate() {
+    try {
+      navigator.clipboard.writeText(TEMPLATE);
+      setCopiedTemplate(true);
+      setTimeout(() => setCopiedTemplate(false), 1800);
+    } catch (e) { /* presse-papiers indisponible */ }
+  }
+
+  const sortedKeys = Object.keys(entries).sort().reverse();
+  const chartData = Object.keys(entries).sort().slice(-14).map((k) => ({
+    date: shortDate(k),
+    recommande: +(entries[k].totalMin / 60).toFixed(2),
+    reel: entries[k].actualSleepMin ? +(entries[k].actualSleepMin / 60).toFixed(2) : null,
+  }));
+
+  if (loading) {
+    return (
+      <div style={{ background: C.void, minHeight: "100vh" }} className="flex items-center justify-center">
+        <div className="w-3 h-3 rounded-full animate-pulse" style={{ background: C.moon }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: C.void, color: C.text, minHeight: "100vh" }}>
+      {!profile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: C.void }}>
+          <div className="w-full max-w-sm fade-up">
+            <div className="flex items-center gap-2 mb-6 justify-center">
+              <MoonIcon size={22} color={C.moon} />
+              <span className="font-display text-xl font-semibold tracking-tight">SleepArc</span>
+            </div>
+            <div className="rounded-2xl p-6" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+              <h1 className="font-display text-lg font-semibold mb-2">Quel âge as-tu ?</h1>
+              <p className="text-sm mb-4" style={{ color: C.vapor }}>
+                Utilisé uniquement pour calculer ta fourchette de sommeil recommandée — indépendant de l'app Santé.
+              </p>
+              <input type="number" inputMode="numeric" value={onboardAge} onChange={(e) => setOnboardAge(e.target.value)}
+                placeholder="Âge" className="w-full rounded-xl px-4 py-3 text-lg font-mono mb-4"
+                style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+              <button onClick={handleOnboard} className="w-full rounded-xl py-3 font-medium flex items-center justify-center gap-2"
+                style={{ background: C.moon, color: C.void }}>
+                Commencer <ChevronRightIcon size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {profile && (
+        <div className="max-w-md mx-auto px-4 pt-6 pb-28">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <MoonIcon size={20} color={C.moon} />
+              <span className="font-display text-lg font-semibold tracking-tight">SleepArc</span>
+            </div>
+            <button onClick={() => { setAgeDraft(String(profile.age)); setSettingsOpen(true); }}
+              className="p-2 rounded-full" style={{ background: C.space }} aria-label="Réglages">
+              <SettingsIcon size={16} color={C.vapor} />
+            </button>
+          </div>
+
+          {tab === "home" && (
+            <div className="space-y-4">
+              <div className="rounded-2xl p-5 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <div className="text-xs font-mono tracking-widest mb-4" style={{ color: C.vapor }}>FENÊTRE DE RÉCUPÉRATION</div>
+                <div className="relative h-3 rounded-full mb-3" style={{ background: C.spaceLight }}>
+                  <div className="absolute inset-y-0 rounded-full glow-pulse" style={{
+                    left: `${bedPct}%`, width: `${Math.max(2, wakePct - bedPct)}%`,
+                    background: `linear-gradient(90deg, ${C.moonDim}, ${C.moon})`, boxShadow: `0 0 14px 2px ${C.moon}55`,
+                  }} />
+                  <div className="absolute top-1/2" style={{ left: `${bedPct}%`, transform: "translate(-50%,-50%)" }}>
+                    <MoonIcon size={12} color={C.moon} style={{ marginTop: -22 }} />
+                  </div>
+                  <div className="absolute top-1/2" style={{ left: `${wakePct}%`, transform: "translate(-50%,-50%)" }}>
+                    <SunriseIcon size={12} color={C.amber} style={{ marginTop: -22 }} />
+                  </div>
+                </div>
+                <div className="flex justify-between text-xs font-mono mb-6" style={{ color: C.vapor }}>
+                  <span>17h</span><span>00h</span><span>11h</span>
+                </div>
+                <div className="text-center mb-2">
+                  <div className="font-display text-4xl font-semibold" style={{ color: C.moon }}>{rec ? formatHM(rec.totalMin) : "—"}</div>
+                  <div className="text-xs font-mono tracking-widest mt-1" style={{ color: C.vapor }}>OBJECTIF CE SOIR · COUCHER {bedLabel}</div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-5 space-y-2 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <div className="flex justify-between text-sm font-mono">
+                  <span style={{ color: C.vapor }}>BASE ({profile.age} ANS)</span>
+                  <span>{rec ? formatHM(rec.baseMin) : "—"}</span>
+                </div>
+                <div className="flex justify-between text-sm font-mono">
+                  <span style={{ color: C.vapor }}>BONUS ACTIVITÉ ({exerciseMin || 0} MIN)</span>
+                  <span style={{ color: C.amber }}>+{rec ? rec.bonus : 0} min</span>
+                </div>
+                <div className="h-px my-2" style={{ background: C.spaceLight }} />
+                <div className="flex justify-between text-sm font-mono font-semibold">
+                  <span>CIBLE</span><span style={{ color: C.moon }}>{rec ? formatHM(rec.totalMin) : "—"}</span>
+                </div>
+              </div>
+
+              <div className="rounded-2xl p-5 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <label className="text-xs font-mono tracking-widest block mb-2" style={{ color: C.vapor }}>HEURE DE RÉVEIL</label>
+                <input type="time" value={wakeTime} onChange={(e) => setWakeTime(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 font-mono"
+                  style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+              </div>
+
+              <div className="rounded-2xl p-5 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <ClipboardIcon size={16} color={C.vapor} />
+                  <span className="text-sm font-medium">Données Santé du jour</span>
+                </div>
+                <textarea value={pasteText} onChange={(e) => handlePasteChange(e.target.value)}
+                  placeholder="Colle ici (appui long → Coller) — l'enregistrement se fait tout seul" rows={2}
+                  className="w-full rounded-xl px-3 py-2 text-sm font-mono mb-2"
+                  style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+                {pasteText && !parseError && (
+                  <p className="text-xs mb-3 flex items-center gap-1" style={{ color: C.amber }}>
+                    <CheckIcon size={12} /> Reconnu et enregistré automatiquement
+                  </p>
+                )}
+                {parseError && (
+                  <div className="mb-3">
+                    <p className="text-xs mb-2" style={{ color: C.danger }}>{parseError}</p>
+                    <button onClick={() => handleParse(pasteText)} className="w-full rounded-xl py-2 text-xs font-medium"
+                      style={{ background: C.spaceLight, color: C.moon }}>Réessayer l'analyse</button>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div>
+                    <div className="text-xs font-mono mb-1 flex items-center gap-1" style={{ color: C.vapor }}><FootIcon size={11} /> PAS</div>
+                    <input type="number" inputMode="numeric" value={steps} onChange={(e) => setSteps(e.target.value)}
+                      className="w-full rounded-lg px-2 py-2 text-sm font-mono"
+                      style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-mono mb-1 flex items-center gap-1" style={{ color: C.vapor }}><ActivityIcon size={11} /> EXO (MIN)</div>
+                    <input type="number" inputMode="numeric" value={exerciseMin} onChange={(e) => setExerciseMin(e.target.value)}
+                      className="w-full rounded-lg px-2 py-2 text-sm font-mono"
+                      style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-mono mb-1 flex items-center gap-1" style={{ color: C.vapor }}><FlameIcon size={11} /> ACTIVES (KCAL)</div>
+                    <input type="number" inputMode="numeric" value={activeEnergy} onChange={(e) => setActiveEnergy(e.target.value)}
+                      className="w-full rounded-lg px-2 py-2 text-sm font-mono"
+                      style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-mono mb-1 flex items-center gap-1" style={{ color: C.vapor }}><BedIcon size={11} /> REPOS (KCAL)</div>
+                    <input type="number" inputMode="numeric" value={restingEnergy} onChange={(e) => setRestingEnergy(e.target.value)}
+                      className="w-full rounded-lg px-2 py-2 text-sm font-mono"
+                      style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+                  </div>
+                </div>
+                <button onClick={handleSaveToday} className="w-full rounded-xl py-3 font-medium flex items-center justify-center gap-2"
+                  style={{ background: savedFlag ? C.amber : C.moon, color: C.void }}>
+                  {savedFlag ? <>Enregistré <CheckIcon size={16} /></> : "Enregistrer (saisie manuelle)"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tab === "history" && (
+            <div className="space-y-4">
+              {sortedKeys.length === 0 && (
+                <div className="rounded-2xl p-6 text-center fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                  <p className="text-sm" style={{ color: C.vapor }}>Aucune donnée pour l'instant. Enregistre ta première soirée depuis l'onglet Ce soir.</p>
+                </div>
+              )}
+              {chartData.length >= 2 && (
+                <div className="rounded-2xl p-4 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                  <div className="text-xs font-mono tracking-widest mb-3" style={{ color: C.vapor }}>TENDANCE (14 DERNIERS JOURS)</div>
+                  <TrendChart data={chartData} />
+                </div>
+              )}
+              {sortedKeys.map((key) => {
+                const e = entries[key];
+                return (
+                  <div key={key} className="rounded-2xl p-4 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                    <div className="flex justify-between items-baseline mb-2">
+                      <span className="font-display font-medium">{shortDate(key)}</span>
+                      <span className="font-mono text-sm" style={{ color: C.moon }}>{formatHM(e.totalMin)}</span>
+                    </div>
+                    <div className="text-xs font-mono flex gap-3 mb-3 flex-wrap" style={{ color: C.vapor }}>
+                      <span>{e.steps} pas</span><span>{e.exerciseMin} min exo</span>
+                      {!!e.activeEnergy && <span>{e.activeEnergy} kcal actives</span>}
+                      {!!e.restingEnergy && <span>{e.restingEnergy} kcal repos</span>}
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <input type="number" step="0.25" inputMode="decimal"
+                        placeholder={e.actualSleepMin ? formatHM(e.actualSleepMin) : "Sommeil réel (h)"}
+                        value={actualDrafts[key] ?? ""} onChange={(ev) => setActualDrafts({ ...actualDrafts, [key]: ev.target.value })}
+                        className="flex-1 rounded-lg px-3 py-2 text-sm font-mono"
+                        style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+                      <button onClick={() => handleSaveActual(key)} className="p-2 rounded-lg" style={{ background: C.spaceLight, color: C.amber }} aria-label="Enregistrer le sommeil réel">
+                        <CheckIcon size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab === "guide" && (
+            <div className="space-y-4">
+              <div className="rounded-2xl p-5 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <InfoIcon size={16} color={C.moon} /><span className="font-display font-medium">Pourquoi un Raccourci ?</span>
+                </div>
+                <p className="text-sm" style={{ color: C.vapor }}>
+                  Une app web ne peut pas lire l'app Santé directement — c'est réservé aux apps natives.
+                  Le Raccourci fait le pont : il lit tes données et les copie. Colle une fois, et l'app
+                  analyse et enregistre toute seule, sans bouton à presser.
+                </p>
+              </div>
+              <div className="rounded-2xl p-5 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <span className="font-display font-medium block mb-2">Le rendre silencieux</span>
+                <p className="text-sm" style={{ color: C.vapor }}>
+                  Dans Raccourcis → onglet Automatisation → Créer une automatisation personnelle → Heure du jour
+                  (ex. 7h). Choisis ton Raccourci « Export Santé », puis désactive « Demander avant d'exécuter ».
+                  Il tournera seul chaque matin — il ne te restera qu'à ouvrir SleepArc et coller.
+                </p>
+              </div>
+              <div className="rounded-2xl p-5 space-y-3 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <span className="font-display font-medium block mb-1">Créer le Raccourci</span>
+                {[
+                  "Ouvre Raccourcis → Nouveau raccourci.",
+                  "Ajoute 4× l'action « Obtenir un échantillon de santé » : Pas, Minutes d'exercice, Énergie active, Énergie au repos — plage Aujourd'hui, agrégation Somme.",
+                  "Ajoute l'action « Texte », colle le modèle ci-dessous, puis remplace chaque <...> par la variable bleue correspondante (glisse-la depuis l'action au-dessus).",
+                  "Ajoute « Copier le presse-papiers » en dernier, avec le Texte en entrée.",
+                  "Renomme-le « Export Santé » et ajoute-le à l'écran d'accueil.",
+                  "Chaque jour : lance le Raccourci, reviens ici, colle dans le champ « Ce soir » — c'est analysé et enregistré tout seul.",
+                ].map((step, i) => (
+                  <div key={i} className="flex gap-3">
+                    <span className="font-mono text-xs mt-0.5 shrink-0" style={{ color: C.moonDim }}>{(i + 1).toString().padStart(2, "0")}</span>
+                    <span className="text-sm" style={{ color: C.text }}>{step}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-2xl p-5 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+                <span className="font-display font-medium block mb-3">Modèle à coller dans l'action Texte</span>
+                <div className="rounded-xl p-3 text-xs font-mono mb-3 break-all" style={{ background: C.spaceLight, color: C.moon }}>{TEMPLATE}</div>
+                <button onClick={copyTemplate} className="w-full rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2"
+                  style={{ background: C.spaceLight, color: copiedTemplate ? C.amber : C.moon }}>
+                  {copiedTemplate ? <>Copié <CheckIcon size={14} /></> : <>Copier <CopyIcon size={14} /></>}
+                </button>
+                <p className="text-xs mt-3" style={{ color: C.vapor }}>Les clés (steps, exerciseMin, activeEnergy, restingEnergy) doivent rester identiques, sinon l'analyse ne pourra pas les reconnaître.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ background: "#000000AA" }}>
+          <div className="w-full max-w-sm rounded-2xl p-6 fade-up" style={{ background: C.space, border: `1px solid ${C.spaceLight}` }}>
+            <div className="flex justify-between items-center mb-4">
+              <span className="font-display font-medium">Modifier mon âge</span>
+              <button onClick={() => setSettingsOpen(false)} aria-label="Fermer"><XIcon size={18} color={C.vapor} /></button>
+            </div>
+            <input type="number" inputMode="numeric" value={ageDraft} onChange={(e) => setAgeDraft(e.target.value)}
+              className="w-full rounded-xl px-4 py-3 text-lg font-mono mb-4"
+              style={{ background: C.spaceLight, color: C.text, border: `1px solid ${C.spaceLight}` }} />
+            <button onClick={handleSaveAge} className="w-full rounded-xl py-3 font-medium" style={{ background: C.moon, color: C.void }}>Enregistrer</button>
+          </div>
+        </div>
+      )}
+
+      {profile && (
+        <div className="fixed bottom-0 left-0 right-0 flex justify-around py-3"
+          style={{ background: `${C.void}EE`, borderTop: `1px solid ${C.spaceLight}`, backdropFilter: "blur(8px)", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
+          {[
+            { id: "home", label: "Ce soir", Icon: MoonIcon },
+            { id: "history", label: "Historique", Icon: ActivityIcon },
+            { id: "guide", label: "Guide", Icon: InfoIcon },
+          ].map(({ id, label, Icon: TabIcon }) => (
+            <button key={id} onClick={() => setTab(id)} className="flex flex-col items-center gap-1 px-4" style={{ color: tab === id ? C.moon : C.vapor }}>
+              <TabIcon size={18} />
+              <span className="text-xs font-mono">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+try {
+  ReactDOM.createRoot(document.getElementById("root")).render(<SleepArc />);
+} catch (err) {
+  document.getElementById("root").innerHTML =
+    '<div style="color:#FF8B8B;background:#0A0E1A;min-height:100vh;padding:24px;font-family:monospace;font-size:13px;white-space:pre-wrap;">Erreur : ' +
+    err.message + '</div>';
+}
+</script>
+</body>
+</html>
